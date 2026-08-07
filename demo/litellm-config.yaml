@@ -1,0 +1,12 @@
+model_list:
+  - model_name: mock-gpt
+    litellm_params:
+      model: openai/mock-gpt
+      mock_response: "Hello from the DuckLake demo"
+      api_key: dummy-key
+
+general_settings:
+  master_key: sk-1234
+
+litellm_settings:
+  callbacks: litellm_ducklake_sink.callback.instance
