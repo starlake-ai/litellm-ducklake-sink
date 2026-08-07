@@ -1,5 +1,10 @@
 # litellm-ducklake-sink
 
+[![PyPI](https://img.shields.io/pypi/v/litellm-ducklake-sink)](https://pypi.org/project/litellm-ducklake-sink/)
+[![Python](https://img.shields.io/pypi/pyversions/litellm-ducklake-sink)](https://pypi.org/project/litellm-ducklake-sink/)
+[![License](https://img.shields.io/pypi/l/litellm-ducklake-sink)](LICENSE)
+[![Release](https://github.com/starlake-ai/litellm-ducklake-sink/actions/workflows/publish.yml/badge.svg)](https://github.com/starlake-ai/litellm-ducklake-sink/actions/workflows/publish.yml)
+
 An out-of-tree LiteLLM proxy logging callback that batches request telemetry and appends it to DuckLake tables through an Arrow Flight SQL endpoint. Metrics land in `llm_requests`, optional payloads in `llm_payloads`, both partitioned by day and queryable with SQL the moment they land.
 
 It works with any DuckLake database exposed through an Arrow Flight SQL server (for example QoD - quack-on-demand). The SQL it emits is plain `CREATE TABLE IF NOT EXISTS`, `INSERT ... VALUES`, and `DELETE`, plus DuckLake's `ALTER TABLE ... SET PARTITIONED BY` at bootstrap, so the backend must be DuckDB with the DuckLake extension, but nothing in the write path is specific to one server. A few optional settings integrate with QoD deployments and are marked as such below.
