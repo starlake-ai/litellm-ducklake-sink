@@ -42,7 +42,19 @@ def test_module_import_exposes_instance(monkeypatch: pytest.MonkeyPatch, tmp_pat
 def test_module_import_without_config_fails_fast(monkeypatch: pytest.MonkeyPatch):
     for key in REQUIRED_ENV:
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("DUCKLAKE_SINK_ENABLED", raising=False)
     sys.modules.pop("litellm_ducklake_sink.callback", None)
     with pytest.raises(ValueError, match="DUCKLAKE_SINK_"):
         importlib.import_module("litellm_ducklake_sink.callback")
+    sys.modules.pop("litellm_ducklake_sink.callback", None)
+
+
+def test_module_import_with_only_enabled_false_succeeds(monkeypatch: pytest.MonkeyPatch):
+    for key in REQUIRED_ENV:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("DUCKLAKE_SINK_ENABLED", "false")
+    sys.modules.pop("litellm_ducklake_sink.callback", None)
+    module = importlib.import_module("litellm_ducklake_sink.callback")
+    assert isinstance(module.instance, DuckLakeLogger)
+    assert module.instance.sink_config.enabled is False
     sys.modules.pop("litellm_ducklake_sink.callback", None)

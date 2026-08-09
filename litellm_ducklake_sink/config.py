@@ -72,10 +72,13 @@ def _at_least_one(key: str, value: int) -> int:
 
 
 def _resolve(env: Mapping[str, str]) -> DuckLakeSinkConfig:
+    enabled = _flag(env, "ENABLED", True)
     endpoint = _text(env, "ENDPOINT")
     username = _text(env, "USERNAME")
     password = _text(env, "PASSWORD")
-    if endpoint is None or username is None or password is None:
+    # A disabled sink must resolve without any other setting: the off switch
+    # cannot demand the credentials it exists to make unnecessary.
+    if enabled and (endpoint is None or username is None or password is None):
         missing = ", ".join(
             _PREFIX + name
             for name, value in (
@@ -87,15 +90,15 @@ def _resolve(env: Mapping[str, str]) -> DuckLakeSinkConfig:
         )
         raise _Invalid(f"missing required ducklake sink settings: {missing}")
     return DuckLakeSinkConfig(
-        endpoint=endpoint,
-        username=username,
-        password=password,
+        endpoint=endpoint or "",
+        username=username or "",
+        password=password or "",
         tenant=_text(env, "TENANT"),
         pool=_text(env, "POOL"),
         tenant_db=_text(env, "TENANT_DB"),
         schema_name=_text(env, "SCHEMA_NAME") or "main",
         tls_skip_verify=_flag(env, "TLS_SKIP_VERIFY", False),
-        enabled=_flag(env, "ENABLED", True),
+        enabled=enabled,
         capture_payloads=_flag(env, "CAPTURE_PAYLOADS", False),
         batch_rows=_at_least_one("BATCH_ROWS", _number(env, "BATCH_ROWS", 1000)),
         batch_interval=_at_least_one("BATCH_INTERVAL", _number(env, "BATCH_INTERVAL", 10)),

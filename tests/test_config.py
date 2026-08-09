@@ -19,6 +19,12 @@ def test_missing_required_settings_returns_error():
     assert "DUCKLAKE_SINK_POOL" not in result.message
 
 
+def test_disabled_sink_requires_no_other_settings():
+    result = resolve_ducklake_config({"DUCKLAKE_SINK_ENABLED": "false"})
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.enabled is False
+
+
 def test_tenant_and_pool_are_optional():
     env = dict(REQUIRED)
     del env["DUCKLAKE_SINK_TENANT"]

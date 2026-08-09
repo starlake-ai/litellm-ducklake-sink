@@ -56,6 +56,12 @@ These settings only apply when the endpoint is a QoD (quack-on-demand) gateway. 
 | tenant_db | DUCKLAKE_SINK_TENANT_DB | unset; needed only for the maintenance trigger |
 | maintenance_url / api key | DUCKLAKE_SINK_MAINTENANCE_URL / _MAINTENANCE_API_KEY | unset; QoD manager REST endpoint for the maintenance trigger |
 
+### Startup and failure behavior
+
+The callback instance is created when the proxy imports it at startup, and misconfiguration fails fast: if the sink is enabled but a required setting is missing or a value cannot be parsed, the proxy refuses to boot rather than silently dropping telemetry. Set `DUCKLAKE_SINK_ENABLED=false` to keep the callback referenced in `config.yaml` but inert; no other settings are required in that case.
+
+An unreachable or wrong endpoint does not block startup. Connections are opened lazily at first flush, so with bad connectivity the proxy serves traffic normally while batches spool to disk and replay once the endpoint is reachable.
+
 ### Table creation
 
 No manual DDL is needed. On the first flush of each process the sink runs `CREATE TABLE IF NOT EXISTS` for `llm_requests` and `llm_payloads` in `schema_name`, then `ALTER TABLE ... SET PARTITIONED BY (request_day)` on each, before the first insert. The schema itself must already exist (`main` always does). The connecting user therefore needs DDL and write privileges on that schema; under QoD with ACL enabled, grant `CREATE`/`ALTER` alongside `INSERT` (and `DELETE` for the retention job).
