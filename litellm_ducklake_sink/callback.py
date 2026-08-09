@@ -10,7 +10,8 @@ def build_instance(
     register_shutdown: Callable[[Callable[[], None]], object] = atexit.register,
 ) -> DuckLakeLogger:
     logger = DuckLakeLogger()
-    register_shutdown(logger.drain_sync)
+    if logger.sink_config.enabled:
+        register_shutdown(logger.drain_sync)
     return logger
 
 

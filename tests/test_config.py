@@ -25,6 +25,32 @@ def test_disabled_sink_requires_no_other_settings():
     assert result.enabled is False
 
 
+def test_disabled_sink_ignores_unparseable_settings():
+    result = resolve_ducklake_config({"DUCKLAKE_SINK_ENABLED": "false", "DUCKLAKE_SINK_BATCH_ROWS": "0"})
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.enabled is False
+
+
+def test_empty_enabled_value_returns_error():
+    result = resolve_ducklake_config({"DUCKLAKE_SINK_ENABLED": ""})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_ENABLED" in result.message
+
+
+def test_explicitly_enabled_still_requires_credentials():
+    result = resolve_ducklake_config({"DUCKLAKE_SINK_ENABLED": "true"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_ENDPOINT" in result.message
+
+
+def test_unicode_digit_returns_error_not_valueerror():
+    env = dict(REQUIRED)
+    env["DUCKLAKE_SINK_BATCH_ROWS"] = "²"
+    result = resolve_ducklake_config(env)
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_BATCH_ROWS" in result.message
+
+
 def test_tenant_and_pool_are_optional():
     env = dict(REQUIRED)
     del env["DUCKLAKE_SINK_TENANT"]
@@ -58,13 +84,12 @@ def test_overrides_and_flag_parsing():
     env = dict(REQUIRED)
     env["DUCKLAKE_SINK_BATCH_ROWS"] = "50"
     env["DUCKLAKE_SINK_CAPTURE_PAYLOADS"] = "true"
-    env["DUCKLAKE_SINK_ENABLED"] = "false"
     env["DUCKLAKE_SINK_SCHEMA_NAME"] = "tpch1"
     result = resolve_ducklake_config(env)
     assert isinstance(result, DuckLakeSinkConfig)
     assert result.batch_rows == 50
     assert result.capture_payloads is True
-    assert result.enabled is False
+    assert result.enabled is True
     assert result.schema_name == "tpch1"
 
 

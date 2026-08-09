@@ -66,6 +66,9 @@ def main() -> int:
     if isinstance(config, DuckLakeConfigError):
         print(config.message)
         return 2
+    if not config.enabled:
+        print("ducklake retention: sink disabled (DUCKLAKE_SINK_ENABLED=false); nothing to do")
+        return 0
     executor = AdbcFlightSqlExecutor(config)
     outcome = run_retention(config, executor, datetime.now(UTC).date(), trigger_maintenance)
     executor.close()

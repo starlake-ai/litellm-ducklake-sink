@@ -58,9 +58,9 @@ These settings only apply when the endpoint is a QoD (quack-on-demand) gateway. 
 
 ### Startup and failure behavior
 
-The callback instance is created when the proxy imports it at startup, and misconfiguration fails fast: if the sink is enabled but a required setting is missing or a value cannot be parsed, the proxy refuses to boot rather than silently dropping telemetry. Set `DUCKLAKE_SINK_ENABLED=false` to keep the callback referenced in `config.yaml` but inert; no other settings are required in that case.
+The callback instance is created when the proxy imports it at startup, and misconfiguration fails fast: if the sink is enabled but a required setting is missing or a value cannot be parsed, the proxy refuses to boot rather than silently dropping telemetry. Set `DUCKLAKE_SINK_ENABLED=false` to keep the callback referenced in `config.yaml` but fully inert: every other setting is ignored, nothing is validated, and no spool directory, connection, or shutdown hook is created. An explicitly empty value (`DUCKLAKE_SINK_ENABLED=`) is rejected as malformed rather than silently falling back to enabled.
 
-An unreachable or wrong endpoint does not block startup. Connections are opened lazily at first flush, so with bad connectivity the proxy serves traffic normally while batches spool to disk and replay once the endpoint is reachable.
+An unreachable or wrong endpoint does not block startup. Connections are opened lazily at first flush, so with bad connectivity the proxy serves traffic normally while batches spool to disk and replay on later flush cycles once the endpoint is reachable. Batches spooled before the sink is disabled stay on disk untouched until it is enabled again.
 
 ### Table creation
 
@@ -82,6 +82,6 @@ Multi-worker deployments share one spool safely: workers claim a batch before re
 python -m litellm_ducklake_sink.retention
 ```
 
-Run it out-of-band (cron or a Kubernetes CronJob). It deletes rows older than `DUCKLAKE_SINK_RETENTION_DAYS`.
+Run it out-of-band (cron or a Kubernetes CronJob). It deletes rows older than `DUCKLAKE_SINK_RETENTION_DAYS`. When `DUCKLAKE_SINK_ENABLED=false` it exits 0 without connecting, so a shared env file disables the proxy sink and the retention job together.
 
 Deletes in DuckLake are logical: old snapshots still reference the deleted rows' Parquet files until snapshot expiry and file cleanup run. On QoD, set `DUCKLAKE_SINK_MAINTENANCE_URL`, `DUCKLAKE_SINK_TENANT`, and `DUCKLAKE_SINK_TENANT_DB` and the retention job triggers QoD's managed maintenance chain after the deletes so the files are physically removed. On any other DuckLake setup, run `ducklake_expire_snapshots` and `ducklake_cleanup_old_files` yourself on whatever schedule your deployment uses.

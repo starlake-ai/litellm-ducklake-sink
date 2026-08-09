@@ -50,11 +50,19 @@ def test_module_import_without_config_fails_fast(monkeypatch: pytest.MonkeyPatch
 
 
 def test_module_import_with_only_enabled_false_succeeds(monkeypatch: pytest.MonkeyPatch):
-    for key in REQUIRED_ENV:
-        monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("DUCKLAKE_SINK_ENABLED", "false")
     sys.modules.pop("litellm_ducklake_sink.callback", None)
     module = importlib.import_module("litellm_ducklake_sink.callback")
     assert isinstance(module.instance, DuckLakeLogger)
     assert module.instance.sink_config.enabled is False
     sys.modules.pop("litellm_ducklake_sink.callback", None)
+
+
+def test_build_instance_skips_shutdown_hook_when_disabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("DUCKLAKE_SINK_ENABLED", "false")
+    from litellm_ducklake_sink.callback import build_instance
+
+    registered: list = []
+    logger = build_instance(register_shutdown=registered.append)
+    assert logger.sink_config.enabled is False
+    assert registered == []

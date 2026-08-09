@@ -193,6 +193,24 @@ async def test_bootstrap_ddl_runs_once_before_first_insert(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_disabled_logger_builds_no_spool_or_executor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import litellm_ducklake_sink.ducklake_logger as module
+
+    def explode(*args, **kwargs):
+        raise AssertionError("must not be constructed for a disabled sink")
+
+    monkeypatch.setattr(module, "DiskSpool", explode)
+    monkeypatch.setattr(module, "AdbcFlightSqlExecutor", explode)
+    logger = DuckLakeLogger(config=_config(tmp_path, DUCKLAKE_SINK_ENABLED="false"), start_flush_task=False)
+    await logger.async_log_success_event(_event_kwargs("r1"), None, None, None)
+    await logger.flush_queue()
+    await logger.drain()
+    logger.drain_sync()
+    assert logger.spool_size_bytes() == 0
+    assert logger.counters.rows_accepted == 0
+
+
+@pytest.mark.asyncio
 async def test_flush_failure_reruns_ddl_on_next_flush(tmp_path: Path):
     executor = FakeExecutor()
     logger = DuckLakeLogger(config=_config(tmp_path), executor=executor, start_flush_task=False)

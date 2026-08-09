@@ -49,8 +49,15 @@ class DuckLakeLogger(CustomBatchLogger):
             raise ValueError(f"ducklake sink misconfigured: {resolved.message}")
         self.sink_config = resolved
         self.counters = DuckLakeCounters()
-        self._executor = executor if executor is not None else AdbcFlightSqlExecutor(resolved)
-        self._spool = spool if spool is not None else DiskSpool(resolved.spool_dir, resolved.spool_max_bytes)
+        # A disabled sink must stay side-effect free: no spool mkdir, no executor.
+        if executor is not None:
+            self._executor: FlightSqlExecutor | None = executor
+        else:
+            self._executor = AdbcFlightSqlExecutor(resolved) if resolved.enabled else None
+        if spool is not None:
+            self._spool: DiskSpool | None = spool
+        else:
+            self._spool = DiskSpool(resolved.spool_dir, resolved.spool_max_bytes) if resolved.enabled else None
         self._bootstrapped = False
         self._pending_bytes = 0
         self._start_flush_task = start_flush_task
@@ -125,7 +132,7 @@ class DuckLakeLogger(CustomBatchLogger):
         return request_stmt, payload_stmt
 
     async def flush_queue(self):
-        if self.flush_lock is None:
+        if not self.sink_config.enabled or self.flush_lock is None:
             return
         async with self.flush_lock:
             batch = self._snapshot_batch()
@@ -214,6 +221,8 @@ class DuckLakeLogger(CustomBatchLogger):
             return
 
     async def periodic_flush(self):
+        if not self.sink_config.enabled:
+            return
         while True:
             await asyncio.sleep(self.flush_interval)
             await self.flush_queue()
@@ -225,6 +234,8 @@ class DuckLakeLogger(CustomBatchLogger):
                         verbose_logger.exception("ducklake sink: spool replay failed")
 
     async def drain(self) -> None:
+        if not self.sink_config.enabled:
+            return
         flush_task = asyncio.ensure_future(self.flush_queue())
         try:
             await asyncio.wait_for(asyncio.shield(flush_task), timeout=self.sink_config.drain_timeout)
@@ -235,6 +246,8 @@ class DuckLakeLogger(CustomBatchLogger):
             )
 
     def drain_sync(self) -> None:
+        if not self.sink_config.enabled:
+            return
         batch = self._snapshot_batch()
         if not batch.requests and not batch.payloads:
             return
@@ -259,4 +272,4 @@ class DuckLakeLogger(CustomBatchLogger):
             return False
 
     def spool_size_bytes(self) -> int:
-        return self._spool.size_bytes()
+        return 0 if self._spool is None else self._spool.size_bytes()
