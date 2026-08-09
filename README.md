@@ -72,6 +72,8 @@ Delivery is at-least-once, not exactly-once. Duplicates are possible when a drai
 
 The disk spool lives at `spool_dir` and is capped at `spool_max_bytes`; once full, the oldest batches are evicted first, and evicted batches are dropped by design rather than retried.
 
+The default spool location under the system tempdir is ephemeral in most container setups: a pod restart discards any batches spooled during an outage. Point `DUCKLAKE_SINK_SPOOL_DIR` at a persistent volume when spooled telemetry must survive restarts. Workers on the same host share one spool safely; separate proxy replicas each keep their own.
+
 Replay of spooled batches runs on the periodic flush cycle, which starts on the first logged request after process start rather than immediately at boot. A proxy that restarts and then sits idle only replays its spool once it handles its first request.
 
 Multi-worker deployments share one spool safely: workers claim a batch before replaying it, so the same batch is never replayed twice, and a claim left behind by a worker that crashes mid-replay is automatically recovered by another worker after 15 minutes.
