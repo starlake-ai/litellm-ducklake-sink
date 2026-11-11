@@ -45,6 +45,27 @@ def quack_endpoint_token(config: DuckLakeSinkConfig) -> str:
     return urlencode([(key, value) for key, value in params if value])
 
 
+def s3_secret_statement(config: DuckLakeSinkConfig) -> str | None:
+    """A DuckDB secret for an s3:// data path, scoped to its bucket; None for any other path."""
+    data_path = config.data_path or ""
+    if not data_path.startswith("s3://"):
+        return None
+    bucket = data_path.removeprefix("s3://").split("/", 1)[0]
+    if config.s3_key_id is not None:
+        credentials = [f"KEY_ID {sql_literal(config.s3_key_id)}", f"SECRET {sql_literal(config.s3_secret or '')}"]
+    else:
+        credentials = ["PROVIDER credential_chain"]
+    options = [
+        *credentials,
+        *([f"REGION {sql_literal(config.s3_region)}"] if config.s3_region else []),
+        *([f"ENDPOINT {sql_literal(config.s3_endpoint)}"] if config.s3_endpoint else []),
+        *([f"URL_STYLE {sql_literal(config.s3_url_style)}"] if config.s3_url_style else []),
+        *([] if config.s3_use_ssl else ["USE_SSL false"]),
+        f"SCOPE {sql_literal(f's3://{bucket}/')}",
+    ]
+    return f"CREATE OR REPLACE SECRET ducklake_sink_s3 (TYPE s3, {', '.join(options)})"
+
+
 def setup_statements(config: DuckLakeSinkConfig) -> tuple[str, ...]:
     """SQL that attaches the lake in a fresh in-process DuckDB and makes it the default catalog."""
     if config.is_quack_endpoint:
@@ -62,6 +83,8 @@ def setup_statements(config: DuckLakeSinkConfig) -> tuple[str, ...]:
         if catalog.startswith("quack:")
         else ()
     )
+    s3_secret = s3_secret_statement(config)
+    secret = (*secret, s3_secret) if s3_secret is not None else secret
     attach = (
         f"ATTACH {sql_literal('ducklake:' + catalog)} AS {ATTACH_ALIAS} "
         f"(DATA_PATH {sql_literal(config.data_path or '')})"

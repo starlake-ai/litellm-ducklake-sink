@@ -238,3 +238,40 @@ def test_quack_endpoint_attaches_remote_database():
 
 def test_build_executor_uses_duckdb_for_quack_endpoint():
     assert isinstance(build_executor(_quack_endpoint_config()), DuckDBExecutor)
+
+
+def test_s3_data_path_creates_credential_chain_secret_scoped_to_the_bucket(tmp_path: Path):
+    from litellm_ducklake_sink.duckdb_client import setup_statements
+
+    config = _direct_config(tmp_path, DUCKLAKE_SINK_DATA_PATH="s3://llm-lake/data/")
+    secret, attach, use = setup_statements(config)
+    assert secret == (
+        "CREATE OR REPLACE SECRET ducklake_sink_s3 (TYPE s3, PROVIDER credential_chain, SCOPE 's3://llm-lake/')"
+    )
+    assert attach.endswith("(DATA_PATH 's3://llm-lake/data/')")
+
+
+def test_s3_static_keys_and_endpoint_go_into_the_secret(tmp_path: Path):
+    from litellm_ducklake_sink.duckdb_client import setup_statements
+
+    config = _direct_config(
+        tmp_path,
+        DUCKLAKE_SINK_DATA_PATH="s3://llm-lake/data/",
+        DUCKLAKE_SINK_S3_KEY_ID="AKIA'X",
+        DUCKLAKE_SINK_S3_SECRET="shh",
+        DUCKLAKE_SINK_S3_REGION="eu-west-3",
+        DUCKLAKE_SINK_S3_ENDPOINT="minio:9000",
+        DUCKLAKE_SINK_S3_URL_STYLE="path",
+        DUCKLAKE_SINK_S3_USE_SSL="false",
+    )
+    assert setup_statements(config)[0] == (
+        "CREATE OR REPLACE SECRET ducklake_sink_s3 (TYPE s3, KEY_ID 'AKIA''X', SECRET 'shh', "
+        "REGION 'eu-west-3', ENDPOINT 'minio:9000', URL_STYLE 'path', USE_SSL false, "
+        "SCOPE 's3://llm-lake/')"
+    )
+
+
+def test_local_data_path_creates_no_s3_secret(tmp_path: Path):
+    from litellm_ducklake_sink.duckdb_client import setup_statements
+
+    assert not any("SECRET" in s for s in setup_statements(_direct_config(tmp_path)))

@@ -134,14 +134,17 @@ Set `DUCKLAKE_SINK_CATALOG` or `DUCKLAKE_SINK_ENDPOINT`, never both.
 | A DuckDB server with the lake attached | `ENDPOINT=quack:host:port`, `QUACK_TOKEN=<token>` | The sink sends its SQL to that server over Quack. |
 | Any Arrow Flight SQL server | `ENDPOINT=grpc+tls://host:port`, `USERNAME`, `PASSWORD` | The server must run DuckDB with the lake attached. |
 
-In the table, `CATALOG` stands for `DUCKLAKE_SINK_CATALOG`, and so on for the other names. Quote a catalog value that contains spaces, such as a Postgres connection string, so the shell keeps it whole. DuckLake records `DATA_PATH` in the catalog on the first write and refuses a different value afterwards, so keep it stable, and make it absolute when proxies start from different folders. With a catalog, the sink attaches DuckLake inside the proxy process and writes the Parquet files itself, and DuckDB downloads the extensions it needs (`ducklake`, `sqlite`, `postgres`, `quack`) on first use. The SQL the sink emits is plain `CREATE TABLE IF NOT EXISTS`, `INSERT ... VALUES`, and `DELETE`, plus DuckLake's `ALTER TABLE ... SET PARTITIONED BY` at bootstrap, so any server in the table works as long as it runs DuckDB with the DuckLake extension.
+In the table, `CATALOG` stands for `DUCKLAKE_SINK_CATALOG`, and so on for the other names. Quote a catalog value that contains spaces, such as a Postgres connection string, so the shell keeps it whole. DuckLake records `DATA_PATH` in the catalog on the first write and refuses a different value afterwards, so keep it stable, and make it absolute when proxies start from different folders. `DATA_PATH` can also be an `s3://` URL: the sink then creates a DuckDB S3 secret for that bucket, from `DUCKLAKE_SINK_S3_*` or, without keys, from the AWS credential chain (`AWS_*` variables, `~/.aws`, or the instance role). Both DuckLake examples carry this as a commented block. With a catalog, the sink attaches DuckLake inside the proxy process and writes the Parquet files itself, and DuckDB downloads the extensions it needs (`ducklake`, `sqlite`, `postgres`, `quack`) on first use. The SQL the sink emits is plain `CREATE TABLE IF NOT EXISTS`, `INSERT ... VALUES`, and `DELETE`, plus DuckLake's `ALTER TABLE ... SET PARTITIONED BY` at bootstrap, so any server in the table works as long as it runs DuckDB with the DuckLake extension.
 
 ### All settings
 
 | Setting | Env var | Default |
 |---|---|---|
 | catalog | DUCKLAKE_SINK_CATALOG | unset; a DuckLake catalog, see the table above |
-| data_path | DUCKLAKE_SINK_DATA_PATH | required with a catalog; folder for the Parquet files |
+| data_path | DUCKLAKE_SINK_DATA_PATH | required with a catalog; folder or `s3://bucket/prefix/` for the Parquet files |
+| s3_key_id / s3_secret | DUCKLAKE_SINK_S3_KEY_ID / _S3_SECRET | unset; static keys for an `s3://` data path. Without them, the AWS credential chain |
+| s3_region | DUCKLAKE_SINK_S3_REGION | unset |
+| s3_endpoint / s3_url_style / s3_use_ssl | DUCKLAKE_SINK_S3_ENDPOINT / _S3_URL_STYLE / _S3_USE_SSL | unset / unset / true; for S3-compatible stores such as MinIO or R2 (`host:port`, `vhost` or `path`) |
 | endpoint | DUCKLAKE_SINK_ENDPOINT | unset; `quack:host:port`, `grpc://host:port` or `grpc+tls://host:port` |
 | username / password | DUCKLAKE_SINK_USERNAME / _PASSWORD | required with a Flight SQL endpoint or a QoD Quack endpoint |
 | quack_token | DUCKLAKE_SINK_QUACK_TOKEN | required with a `quack:` catalog or a non-QoD `quack:` endpoint |

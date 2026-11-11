@@ -29,6 +29,13 @@ class DuckLakeSinkConfig:
     catalog: str | None = field(default=None, repr=False)
     data_path: str | None = None
     quack_token: str | None = field(default=None, repr=False)
+    # S3 credentials for an s3:// data_path. Without keys, DuckDB uses the AWS credential chain.
+    s3_key_id: str | None = None
+    s3_secret: str | None = field(default=None, repr=False)
+    s3_region: str | None = None
+    s3_endpoint: str | None = None
+    s3_url_style: str | None = None
+    s3_use_ssl: bool = True
     # Server mode: the sink sends SQL to a server that has the lake attached,
     # over Quack (endpoint quack:host:port) or Arrow Flight SQL (grpc://, grpc+tls://).
     endpoint: str = ""
@@ -135,7 +142,28 @@ def _direct_connection(env: Mapping[str, str], catalog: str) -> DuckLakeSinkConf
     quack_token = _text(env, "QUACK_TOKEN")
     if catalog.startswith("quack:") and quack_token is None:
         raise _Invalid(f"missing required ducklake sink settings: {_PREFIX}QUACK_TOKEN (for catalog {catalog!r})")
-    return DuckLakeSinkConfig(catalog=catalog, data_path=data_path, quack_token=quack_token)
+    s3_key_id = _text(env, "S3_KEY_ID")
+    s3_secret = _text(env, "S3_SECRET")
+    if (s3_key_id is None) != (s3_secret is None):
+        missing = "S3_SECRET" if s3_secret is None else "S3_KEY_ID"
+        raise _Invalid(
+            f"missing required ducklake sink settings: {_PREFIX}{missing} "
+            f"({_PREFIX}S3_KEY_ID and {_PREFIX}S3_SECRET go together)"
+        )
+    s3_url_style = _text(env, "S3_URL_STYLE")
+    if s3_url_style is not None and s3_url_style not in ("vhost", "path"):
+        raise _Invalid(f"{_PREFIX}S3_URL_STYLE must be vhost or path, got {s3_url_style!r}")
+    return DuckLakeSinkConfig(
+        catalog=catalog,
+        data_path=data_path,
+        quack_token=quack_token,
+        s3_key_id=s3_key_id,
+        s3_secret=s3_secret,
+        s3_region=_text(env, "S3_REGION"),
+        s3_endpoint=_text(env, "S3_ENDPOINT"),
+        s3_url_style=s3_url_style,
+        s3_use_ssl=_flag(env, "S3_USE_SSL", True),
+    )
 
 
 def _quack_endpoint_connection(env: Mapping[str, str], endpoint: str) -> DuckLakeSinkConfig:

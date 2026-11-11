@@ -64,3 +64,18 @@ def test_shell_sourcing_reads_the_same_values_as_dotenv(name: str):
     sourced = dict(entry.split("=", 1) for entry in output.decode().split("\0") if "=" in entry)
     for key, value in dotenv_values(EXAMPLES / name).items():
         assert sourced.get(key) == (value or ""), key
+
+
+@pytest.mark.parametrize("name", ["ducklake-sqlite.env", "ducklake-postgres.env"])
+def test_uncommented_s3_block_resolves_to_an_s3_data_path(name: str, tmp_path: Path):
+    text = (EXAMPLES / name).read_text()
+    start = text.index("# DUCKLAKE_SINK_DATA_PATH=s3://")
+    end = text.index("# DUCKLAKE_SINK_S3_USE_SSL=false") + len("# DUCKLAKE_SINK_S3_USE_SSL=false")
+    block = "\n".join(line.removeprefix("# ") for line in text[start:end].splitlines())
+    uncommented = tmp_path / name
+    uncommented.write_text(text[:start] + block + text[end:])
+    values = {key: value or "" for key, value in dotenv_values(uncommented).items()}
+    config = resolve_ducklake_config(values)
+    assert isinstance(config, DuckLakeSinkConfig), config
+    assert config.data_path == "s3://my-bucket/llm-lake/"
+    assert (config.s3_endpoint, config.s3_url_style, config.s3_use_ssl) == ("localhost:9000", "path", False)

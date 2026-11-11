@@ -255,3 +255,49 @@ def test_flight_sql_endpoint_is_not_quack():
     result = resolve_ducklake_config(dict(REQUIRED))
     assert isinstance(result, DuckLakeSinkConfig)
     assert result.is_quack_endpoint is False
+
+
+S3_DIRECT = {"DUCKLAKE_SINK_CATALOG": "sqlite:catalog.sqlite", "DUCKLAKE_SINK_DATA_PATH": "s3://llm-lake/data/"}
+
+
+def test_s3_settings_default_to_credential_chain_over_tls():
+    result = resolve_ducklake_config(dict(S3_DIRECT))
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert (result.s3_key_id, result.s3_secret, result.s3_region, result.s3_endpoint) == (None, None, None, None)
+    assert result.s3_url_style is None
+    assert result.s3_use_ssl is True
+
+
+def test_s3_static_keys_resolve_and_secret_is_hidden():
+    env = {
+        **S3_DIRECT,
+        "DUCKLAKE_SINK_S3_KEY_ID": "AKIAEXAMPLE",
+        "DUCKLAKE_SINK_S3_SECRET": "s3topsecret",
+        "DUCKLAKE_SINK_S3_REGION": "eu-west-3",
+        "DUCKLAKE_SINK_S3_ENDPOINT": "minio:9000",
+        "DUCKLAKE_SINK_S3_URL_STYLE": "path",
+        "DUCKLAKE_SINK_S3_USE_SSL": "false",
+    }
+    result = resolve_ducklake_config(env)
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert (result.s3_key_id, result.s3_region, result.s3_endpoint) == ("AKIAEXAMPLE", "eu-west-3", "minio:9000")
+    assert (result.s3_url_style, result.s3_use_ssl) == ("path", False)
+    assert "s3topsecret" not in repr(result)
+
+
+def test_s3_key_id_without_secret_returns_error():
+    result = resolve_ducklake_config({**S3_DIRECT, "DUCKLAKE_SINK_S3_KEY_ID": "AKIAEXAMPLE"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_S3_SECRET" in result.message
+
+
+def test_s3_secret_without_key_id_returns_error():
+    result = resolve_ducklake_config({**S3_DIRECT, "DUCKLAKE_SINK_S3_SECRET": "s3topsecret"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_S3_KEY_ID" in result.message
+
+
+def test_bad_s3_url_style_returns_error():
+    result = resolve_ducklake_config({**S3_DIRECT, "DUCKLAKE_SINK_S3_URL_STYLE": "sideways"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_S3_URL_STYLE" in result.message
