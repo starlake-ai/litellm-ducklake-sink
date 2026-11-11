@@ -73,10 +73,7 @@ def test_minimal_env_resolves_with_defaults():
     assert result.spool_max_bytes == 512 * 1024 * 1024
     assert result.drain_timeout == 10
     assert result.flush_max_attempts == 5
-    assert result.retention_days == 30
     assert result.schema_name == "main"
-    assert result.tenant_db is None
-    assert result.maintenance_url is None
     assert result.spool_dir.endswith("litellm_ducklake_spool")
 
 
@@ -110,13 +107,14 @@ def test_bad_integer_returns_error():
 
 
 def test_secrets_hidden_from_repr():
-    env = dict(REQUIRED)
-    env["DUCKLAKE_SINK_MAINTENANCE_API_KEY"] = "topsecretkey"
-    result = resolve_ducklake_config(env)
+    result = resolve_ducklake_config(dict(REQUIRED))
     assert isinstance(result, DuckLakeSinkConfig)
-    rendered = repr(result)
-    assert "secret" not in rendered
-    assert "topsecretkey" not in rendered
+    assert "secret" not in repr(result)
+
+
+def test_config_has_no_maintenance_settings():
+    fields = DuckLakeSinkConfig.__dataclass_fields__
+    assert not {"tenant_db", "maintenance_url", "maintenance_api_key"} & set(fields)
 
 
 def test_bad_boolean_returns_error():
@@ -149,3 +147,163 @@ def test_zero_flush_max_attempts_returns_error():
     result = resolve_ducklake_config(env)
     assert isinstance(result, DuckLakeConfigError)
     assert "DUCKLAKE_SINK_FLUSH_MAX_ATTEMPTS" in result.message
+
+
+DIRECT = {
+    "DUCKLAKE_SINK_CATALOG": "sqlite:lake/catalog.sqlite",
+    "DUCKLAKE_SINK_DATA_PATH": "lake/data/",
+}
+
+
+def test_direct_mode_needs_no_endpoint_or_credentials():
+    result = resolve_ducklake_config(dict(DIRECT))
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.catalog == "sqlite:lake/catalog.sqlite"
+    assert result.data_path == "lake/data/"
+    assert result.endpoint == ""
+    assert result.is_direct is True
+
+
+def test_flight_sql_mode_is_not_direct():
+    result = resolve_ducklake_config(dict(REQUIRED))
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.is_direct is False
+    assert result.catalog is None
+
+
+def test_direct_mode_requires_data_path():
+    result = resolve_ducklake_config({"DUCKLAKE_SINK_CATALOG": "sqlite:catalog.sqlite"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_DATA_PATH" in result.message
+
+
+def test_catalog_and_endpoint_are_mutually_exclusive():
+    result = resolve_ducklake_config({**REQUIRED, **DIRECT})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_CATALOG" in result.message
+    assert "DUCKLAKE_SINK_ENDPOINT" in result.message
+
+
+def test_nothing_configured_names_both_modes():
+    result = resolve_ducklake_config({})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_CATALOG" in result.message
+    assert "DUCKLAKE_SINK_ENDPOINT" in result.message
+
+
+def test_catalog_accepts_ducklake_prefix():
+    result = resolve_ducklake_config({**DIRECT, "DUCKLAKE_SINK_CATALOG": "ducklake:sqlite:catalog.sqlite"})
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.catalog == "sqlite:catalog.sqlite"
+
+
+def test_catalog_hidden_from_repr():
+    # A Postgres catalog string carries the catalog database password.
+    env = {**DIRECT, "DUCKLAKE_SINK_CATALOG": "postgres:dbname=lake password=pgsecret"}
+    result = resolve_ducklake_config(env)
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert "pgsecret" not in repr(result)
+
+
+def test_quack_catalog_requires_token():
+    result = resolve_ducklake_config({**DIRECT, "DUCKLAKE_SINK_CATALOG": "quack:localhost"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_QUACK_TOKEN" in result.message
+
+
+def test_quack_catalog_with_token_resolves_and_hides_token():
+    env = {**DIRECT, "DUCKLAKE_SINK_CATALOG": "quack:localhost", "DUCKLAKE_SINK_QUACK_TOKEN": "quacksecret"}
+    result = resolve_ducklake_config(env)
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.quack_token == "quacksecret"
+    assert "quacksecret" not in repr(result)
+
+
+QOD_QUACK = {
+    "DUCKLAKE_SINK_ENDPOINT": "quack:localhost:9494",
+    "DUCKLAKE_SINK_USERNAME": "acme-admin",
+    "DUCKLAKE_SINK_PASSWORD": "demo-acme-admin",
+    "DUCKLAKE_SINK_TENANT": "acme",
+    "DUCKLAKE_SINK_POOL": "bi",
+}
+
+
+def test_quack_endpoint_with_credentials_resolves():
+    result = resolve_ducklake_config(dict(QOD_QUACK))
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.is_quack_endpoint is True
+    assert result.is_direct is False
+
+
+def test_quack_endpoint_with_raw_token_needs_no_credentials():
+    env = {"DUCKLAKE_SINK_ENDPOINT": "quack:db.internal:9494", "DUCKLAKE_SINK_QUACK_TOKEN": "server-token"}
+    result = resolve_ducklake_config(env)
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.quack_token == "server-token"
+
+
+def test_quack_endpoint_without_any_credentials_names_both_options():
+    result = resolve_ducklake_config({"DUCKLAKE_SINK_ENDPOINT": "quack:localhost:9494"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_QUACK_TOKEN" in result.message
+    assert "DUCKLAKE_SINK_USERNAME" in result.message
+
+
+def test_flight_sql_endpoint_is_not_quack():
+    result = resolve_ducklake_config(dict(REQUIRED))
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.is_quack_endpoint is False
+
+
+S3_DIRECT = {"DUCKLAKE_SINK_CATALOG": "sqlite:catalog.sqlite", "DUCKLAKE_SINK_DATA_PATH": "s3://llm-lake/data/"}
+
+
+def test_s3_settings_default_to_credential_chain_over_tls():
+    result = resolve_ducklake_config(dict(S3_DIRECT))
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert (result.s3_key_id, result.s3_secret, result.s3_region, result.s3_endpoint) == (None, None, None, None)
+    assert result.s3_url_style is None
+    assert result.s3_use_ssl is True
+
+
+def test_s3_static_keys_resolve_and_secret_is_hidden():
+    env = {
+        **S3_DIRECT,
+        "DUCKLAKE_SINK_S3_KEY_ID": "AKIAEXAMPLE",
+        "DUCKLAKE_SINK_S3_SECRET": "s3topsecret",
+        "DUCKLAKE_SINK_S3_REGION": "eu-west-3",
+        "DUCKLAKE_SINK_S3_ENDPOINT": "minio:9000",
+        "DUCKLAKE_SINK_S3_URL_STYLE": "path",
+        "DUCKLAKE_SINK_S3_USE_SSL": "false",
+    }
+    result = resolve_ducklake_config(env)
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert (result.s3_key_id, result.s3_region, result.s3_endpoint) == ("AKIAEXAMPLE", "eu-west-3", "minio:9000")
+    assert (result.s3_url_style, result.s3_use_ssl) == ("path", False)
+    assert "s3topsecret" not in repr(result)
+
+
+def test_s3_key_id_without_secret_returns_error():
+    result = resolve_ducklake_config({**S3_DIRECT, "DUCKLAKE_SINK_S3_KEY_ID": "AKIAEXAMPLE"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_S3_SECRET" in result.message
+
+
+def test_s3_secret_without_key_id_returns_error():
+    result = resolve_ducklake_config({**S3_DIRECT, "DUCKLAKE_SINK_S3_SECRET": "s3topsecret"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_S3_KEY_ID" in result.message
+
+
+def test_bad_s3_url_style_returns_error():
+    result = resolve_ducklake_config({**S3_DIRECT, "DUCKLAKE_SINK_S3_URL_STYLE": "sideways"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_S3_URL_STYLE" in result.message
+
+
+def test_sink_has_no_retention_job_or_setting():
+    # Expiring old rows belongs to whoever hosts the lake (QoD on its side).
+    import importlib.util
+
+    assert importlib.util.find_spec("litellm_ducklake_sink.retention") is None
+    assert "retention_days" not in DuckLakeSinkConfig.__dataclass_fields__
