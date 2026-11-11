@@ -35,6 +35,7 @@ dev = [
 Homepage = "https://github.com/starlake-ai/litellm-ducklake-sink"
 Repository = "https://github.com/starlake-ai/litellm-ducklake-sink"
 Issues = "https://github.com/starlake-ai/litellm-ducklake-sink/issues"
+Changelog = "https://github.com/starlake-ai/litellm-ducklake-sink/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
@@ -44,7 +45,7 @@ build-backend = "hatchling.build"
 packages = ["litellm_ducklake_sink"]
 
 [tool.hatch.build.targets.sdist]
-include = ["litellm_ducklake_sink", "tests", "README.md", "LICENSE"]
+include = ["litellm_ducklake_sink", "tests", "examples", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
