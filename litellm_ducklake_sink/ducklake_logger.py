@@ -6,7 +6,12 @@ from litellm._logging import verbose_logger
 from litellm.integrations.custom_batch_logger import CustomBatchLogger
 from litellm.types.utils import StandardLoggingPayload
 
-from litellm_ducklake_sink.config import DuckLakeConfigError, DuckLakeSinkConfig, resolve_ducklake_config
+from litellm_ducklake_sink.config import (
+    DuckLakeConfigError,
+    DuckLakeSinkConfig,
+    DuckLakeSinkMisconfiguredError,
+    resolve_ducklake_config,
+)
 from litellm_ducklake_sink.flight_client import AdbcFlightSqlExecutor, FlightSqlExecutor
 from litellm_ducklake_sink.records import build_payload_row, build_request_row
 from litellm_ducklake_sink.spool import DiskSpool
@@ -46,7 +51,7 @@ class DuckLakeLogger(CustomBatchLogger):
     ) -> None:
         resolved = config if config is not None else resolve_ducklake_config()
         if isinstance(resolved, DuckLakeConfigError):
-            raise ValueError(f"ducklake sink misconfigured: {resolved.message}")
+            raise DuckLakeSinkMisconfiguredError(resolved.message)
         self.sink_config = resolved
         self.counters = DuckLakeCounters()
         # A disabled sink must stay side-effect free: no spool mkdir, no executor.

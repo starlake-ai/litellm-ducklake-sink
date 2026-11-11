@@ -13,6 +13,16 @@ class DuckLakeConfigError:
     message: str
 
 
+class DuckLakeSinkMisconfiguredError(ValueError):
+    """An enabled sink cannot start from its configuration; the proxy must not boot."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(
+            f"litellm-ducklake-sink is misconfigured: {reason}. "
+            f"Fix the setting, or set {_PREFIX}ENABLED=false to start the proxy without the sink."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class DuckLakeSinkConfig:
     endpoint: str = ""
