@@ -76,7 +76,7 @@ def test_main_is_noop_when_sink_disabled(monkeypatch, capsys):
     def explode(config):
         raise AssertionError("executor must not be constructed for a disabled sink")
 
-    monkeypatch.setattr(retention_module, "AdbcFlightSqlExecutor", explode)
+    monkeypatch.setattr(retention_module, "build_executor", explode)
     monkeypatch.setenv("DUCKLAKE_SINK_ENABLED", "false")
     assert retention_module.main() == 0
     assert "disabled" in capsys.readouterr().out

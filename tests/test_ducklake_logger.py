@@ -200,7 +200,7 @@ async def test_disabled_logger_builds_no_spool_or_executor(tmp_path: Path, monke
         raise AssertionError("must not be constructed for a disabled sink")
 
     monkeypatch.setattr(module, "DiskSpool", explode)
-    monkeypatch.setattr(module, "AdbcFlightSqlExecutor", explode)
+    monkeypatch.setattr(module, "build_executor", explode)
     logger = DuckLakeLogger(config=_config(tmp_path, DUCKLAKE_SINK_ENABLED="false"), start_flush_task=False)
     await logger.async_log_success_event(_event_kwargs("r1"), None, None, None)
     await logger.flush_queue()

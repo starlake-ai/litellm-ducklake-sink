@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
 from litellm_ducklake_sink.config import DuckLakeConfigError, DuckLakeSinkConfig, resolve_ducklake_config
-from litellm_ducklake_sink.flight_client import AdbcFlightSqlExecutor, FlightSqlExecutor
+from litellm_ducklake_sink.duckdb_client import build_executor
+from litellm_ducklake_sink.flight_client import FlightSqlExecutor
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +70,7 @@ def main() -> int:
     if not config.enabled:
         print("ducklake retention: sink disabled (DUCKLAKE_SINK_ENABLED=false); nothing to do")
         return 0
-    executor = AdbcFlightSqlExecutor(config)
+    executor = build_executor(config)
     outcome = run_retention(config, executor, datetime.now(UTC).date(), trigger_maintenance)
     executor.close()
     print(

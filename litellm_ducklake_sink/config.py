@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 _PREFIX = "DUCKLAKE_SINK_"
 
@@ -25,6 +25,12 @@ class DuckLakeSinkMisconfiguredError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class DuckLakeSinkConfig:
+    # Direct mode: the sink embeds DuckDB and attaches the DuckLake catalog itself.
+    catalog: str | None = field(default=None, repr=False)
+    data_path: str | None = None
+    quack_token: str | None = field(default=None, repr=False)
+    # Server mode: the sink sends SQL to a server that has the lake attached,
+    # over Quack (endpoint quack:host:port) or Arrow Flight SQL (grpc://, grpc+tls://).
     endpoint: str = ""
     username: str = ""
     password: str = field(default="", repr=False)
@@ -46,6 +52,14 @@ class DuckLakeSinkConfig:
     retention_days: int = 30
     maintenance_url: str | None = None
     maintenance_api_key: str | None = field(default=None, repr=False)
+
+    @property
+    def is_direct(self) -> bool:
+        return self.catalog is not None
+
+    @property
+    def is_quack_endpoint(self) -> bool:
+        return self.endpoint.startswith("quack:")
 
 
 class _Invalid(Exception):
@@ -97,24 +111,66 @@ def _resolve(env: Mapping[str, str]) -> DuckLakeSinkConfig:
     # nothing else configured, including stale or unparseable settings.
     if not _enabled(env):
         return DuckLakeSinkConfig(enabled=False)
+    catalog = _text(env, "CATALOG")
     endpoint = _text(env, "ENDPOINT")
+    if catalog is not None and endpoint is not None:
+        raise _Invalid(
+            f"set either {_PREFIX}CATALOG (write to DuckLake directly) or "
+            f"{_PREFIX}ENDPOINT (write through a Quack or Flight SQL server), not both"
+        )
+    if catalog is not None:
+        return _with_tuning(env, _direct_connection(env, catalog))
+    if endpoint is not None and endpoint.startswith("quack:"):
+        return _with_tuning(env, _quack_endpoint_connection(env, endpoint))
+    return _with_tuning(env, _flight_sql_connection(env, endpoint))
+
+
+def _direct_connection(env: Mapping[str, str], catalog: str) -> DuckLakeSinkConfig:
+    catalog = catalog.removeprefix("ducklake:")
+    data_path = _text(env, "DATA_PATH")
+    if data_path is None:
+        raise _Invalid(
+            f"missing required ducklake sink settings: {_PREFIX}DATA_PATH (where DuckLake writes Parquet files)"
+        )
+    quack_token = _text(env, "QUACK_TOKEN")
+    if catalog.startswith("quack:") and quack_token is None:
+        raise _Invalid(f"missing required ducklake sink settings: {_PREFIX}QUACK_TOKEN (for catalog {catalog!r})")
+    return DuckLakeSinkConfig(catalog=catalog, data_path=data_path, quack_token=quack_token)
+
+
+def _quack_endpoint_connection(env: Mapping[str, str], endpoint: str) -> DuckLakeSinkConfig:
+    quack_token = _text(env, "QUACK_TOKEN")
     username = _text(env, "USERNAME")
     password = _text(env, "PASSWORD")
-    if endpoint is None or username is None or password is None:
+    if quack_token is None and (username is None or password is None):
+        raise _Invalid(
+            f"missing required ducklake sink settings: {_PREFIX}USERNAME and {_PREFIX}PASSWORD (QoD), "
+            f"or {_PREFIX}QUACK_TOKEN (a DuckDB quack_serve server), for endpoint {endpoint!r}"
+        )
+    return DuckLakeSinkConfig(
+        endpoint=endpoint, username=username or "", password=password or "", quack_token=quack_token
+    )
+
+
+def _flight_sql_connection(env: Mapping[str, str], endpoint: str | None) -> DuckLakeSinkConfig:
+    if endpoint is None:
+        raise _Invalid(
+            f"missing required ducklake sink settings: {_PREFIX}CATALOG (write to DuckLake directly) "
+            f"or {_PREFIX}ENDPOINT (write through a Quack or Flight SQL server)"
+        )
+    username = _text(env, "USERNAME")
+    password = _text(env, "PASSWORD")
+    if username is None or password is None:
         missing = ", ".join(
-            _PREFIX + name
-            for name, value in (
-                ("ENDPOINT", endpoint),
-                ("USERNAME", username),
-                ("PASSWORD", password),
-            )
-            if value is None
+            _PREFIX + name for name, value in (("USERNAME", username), ("PASSWORD", password)) if value is None
         )
         raise _Invalid(f"missing required ducklake sink settings: {missing}")
-    return DuckLakeSinkConfig(
-        endpoint=endpoint,
-        username=username,
-        password=password,
+    return DuckLakeSinkConfig(endpoint=endpoint, username=username, password=password)
+
+
+def _with_tuning(env: Mapping[str, str], connection: DuckLakeSinkConfig) -> DuckLakeSinkConfig:
+    return replace(
+        connection,
         tenant=_text(env, "TENANT"),
         pool=_text(env, "POOL"),
         tenant_db=_text(env, "TENANT_DB"),

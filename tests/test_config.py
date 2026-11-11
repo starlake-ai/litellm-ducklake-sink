@@ -149,3 +149,109 @@ def test_zero_flush_max_attempts_returns_error():
     result = resolve_ducklake_config(env)
     assert isinstance(result, DuckLakeConfigError)
     assert "DUCKLAKE_SINK_FLUSH_MAX_ATTEMPTS" in result.message
+
+
+DIRECT = {
+    "DUCKLAKE_SINK_CATALOG": "sqlite:lake/catalog.sqlite",
+    "DUCKLAKE_SINK_DATA_PATH": "lake/data/",
+}
+
+
+def test_direct_mode_needs_no_endpoint_or_credentials():
+    result = resolve_ducklake_config(dict(DIRECT))
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.catalog == "sqlite:lake/catalog.sqlite"
+    assert result.data_path == "lake/data/"
+    assert result.endpoint == ""
+    assert result.is_direct is True
+
+
+def test_flight_sql_mode_is_not_direct():
+    result = resolve_ducklake_config(dict(REQUIRED))
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.is_direct is False
+    assert result.catalog is None
+
+
+def test_direct_mode_requires_data_path():
+    result = resolve_ducklake_config({"DUCKLAKE_SINK_CATALOG": "sqlite:catalog.sqlite"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_DATA_PATH" in result.message
+
+
+def test_catalog_and_endpoint_are_mutually_exclusive():
+    result = resolve_ducklake_config({**REQUIRED, **DIRECT})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_CATALOG" in result.message
+    assert "DUCKLAKE_SINK_ENDPOINT" in result.message
+
+
+def test_nothing_configured_names_both_modes():
+    result = resolve_ducklake_config({})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_CATALOG" in result.message
+    assert "DUCKLAKE_SINK_ENDPOINT" in result.message
+
+
+def test_catalog_accepts_ducklake_prefix():
+    result = resolve_ducklake_config({**DIRECT, "DUCKLAKE_SINK_CATALOG": "ducklake:sqlite:catalog.sqlite"})
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.catalog == "sqlite:catalog.sqlite"
+
+
+def test_catalog_hidden_from_repr():
+    # A Postgres catalog string carries the catalog database password.
+    env = {**DIRECT, "DUCKLAKE_SINK_CATALOG": "postgres:dbname=lake password=pgsecret"}
+    result = resolve_ducklake_config(env)
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert "pgsecret" not in repr(result)
+
+
+def test_quack_catalog_requires_token():
+    result = resolve_ducklake_config({**DIRECT, "DUCKLAKE_SINK_CATALOG": "quack:localhost"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_QUACK_TOKEN" in result.message
+
+
+def test_quack_catalog_with_token_resolves_and_hides_token():
+    env = {**DIRECT, "DUCKLAKE_SINK_CATALOG": "quack:localhost", "DUCKLAKE_SINK_QUACK_TOKEN": "quacksecret"}
+    result = resolve_ducklake_config(env)
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.quack_token == "quacksecret"
+    assert "quacksecret" not in repr(result)
+
+
+QOD_QUACK = {
+    "DUCKLAKE_SINK_ENDPOINT": "quack:localhost:9494",
+    "DUCKLAKE_SINK_USERNAME": "acme-admin",
+    "DUCKLAKE_SINK_PASSWORD": "demo-acme-admin",
+    "DUCKLAKE_SINK_TENANT": "acme",
+    "DUCKLAKE_SINK_POOL": "bi",
+}
+
+
+def test_quack_endpoint_with_credentials_resolves():
+    result = resolve_ducklake_config(dict(QOD_QUACK))
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.is_quack_endpoint is True
+    assert result.is_direct is False
+
+
+def test_quack_endpoint_with_raw_token_needs_no_credentials():
+    env = {"DUCKLAKE_SINK_ENDPOINT": "quack:db.internal:9494", "DUCKLAKE_SINK_QUACK_TOKEN": "server-token"}
+    result = resolve_ducklake_config(env)
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.quack_token == "server-token"
+
+
+def test_quack_endpoint_without_any_credentials_names_both_options():
+    result = resolve_ducklake_config({"DUCKLAKE_SINK_ENDPOINT": "quack:localhost:9494"})
+    assert isinstance(result, DuckLakeConfigError)
+    assert "DUCKLAKE_SINK_QUACK_TOKEN" in result.message
+    assert "DUCKLAKE_SINK_USERNAME" in result.message
+
+
+def test_flight_sql_endpoint_is_not_quack():
+    result = resolve_ducklake_config(dict(REQUIRED))
+    assert isinstance(result, DuckLakeSinkConfig)
+    assert result.is_quack_endpoint is False
