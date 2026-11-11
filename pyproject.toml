@@ -1,6 +1,6 @@
 [project]
 name = "litellm-ducklake-sink"
-version = "0.1.2"
+version = "0.2.0"
 description = "LiteLLM proxy logging callback that writes request telemetry to DuckLake directly, or through a Quack or Arrow Flight SQL server"
 readme = "README.md"
 license = "Apache-2.0"
