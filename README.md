@@ -24,7 +24,7 @@ pip install 'litellm[proxy]' litellm-ducklake-sink
 **2. Configure.** Download the sink's settings, which come with every default filled in and point at a local lake in `./lake/`, and add a master key for the proxy:
 
 ```bash
-curl -sSLo .env https://raw.githubusercontent.com/starlake-ai/litellm-ducklake-sink/main/.env.example
+curl -sSLo .env https://raw.githubusercontent.com/starlake-ai/litellm-ducklake-sink/main/examples/ducklake-sqlite.env
 echo "LITELLM_MASTER_KEY=sk-$(openssl rand -hex 32)" >> .env
 ```
 
@@ -45,7 +45,7 @@ litellm_settings:
   callbacks: litellm_ducklake_sink.callback.instance
 ```
 
-**3. Start the proxy.** LiteLLM does not read `.env` from your folder by itself, so load it into the shell first:
+**3. Start the proxy.** LiteLLM looks for a `.env` above its own install folder, not in the folder you start it from, so load the file into the shell explicitly:
 
 ```bash
 set -a; . ./.env; set +a
@@ -93,7 +93,13 @@ The DuckDB CLI works the same way: `duckdb -c "ATTACH 'ducklake:sqlite:lake/cata
 
 Small batches show up in `lake/catalog.sqlite` before any Parquet file appears in `lake/data/`. DuckLake inlines small inserts into the catalog and moves them to Parquet once they grow, and queries see both.
 
-**Going further.** Everything is configured through `.env`; the sections below explain each setting. To share the lake between several proxy replicas, swap the SQLite catalog for Postgres (`DUCKLAKE_SINK_CATALOG=postgres:dbname=lake host=db user=lake password=...`) and point `DUCKLAKE_SINK_DATA_PATH` at a folder every replica can reach. To send telemetry to QoD instead, uncomment the QoD block at the end of `.env`.
+**Going further.** Everything is configured through `.env`; the sections below explain each setting. [`examples/`](examples/) has a complete env file per setup, each with every default spelled out:
+
+| File | Setup |
+|---|---|
+| [`ducklake-sqlite.env`](examples/ducklake-sqlite.env) | DuckLake with a SQLite catalog, no server: the quickstart |
+| [`ducklake-postgres.env`](examples/ducklake-postgres.env) | DuckLake with a Postgres catalog, shared by several proxy replicas |
+| [`qod.env`](examples/qod.env) | A QoD gateway over Arrow Flight SQL (or Quack), with the demo's values |
 
 ## Install
 
@@ -112,7 +118,7 @@ litellm_settings:
   callbacks: litellm_ducklake_sink.callback.instance
 ```
 
-All settings come from `DUCKLAKE_SINK_*` environment variables. [`.env.example`](.env.example) lists every one of them with its default, and the proxy needs them in its environment (for example `set -a; . ./.env; set +a` before `litellm`).
+All settings come from `DUCKLAKE_SINK_*` environment variables. The files in [`examples/`](examples/) list every one of them with its default, and the proxy needs them in its environment (for example `set -a; . ./.env; set +a` before `litellm`). LiteLLM also loads a `.env` it finds in a folder above its own install, such as the folder holding its `.venv`, and those values fill in any setting your shell leaves unset. Keep one `.env` per setup, or a stale `DUCKLAKE_SINK_CATALOG` from one file can meet the `DUCKLAKE_SINK_ENDPOINT` of another; the sink then refuses to start and names both settings.
 
 ### Where telemetry lands
 
@@ -124,11 +130,11 @@ Set `DUCKLAKE_SINK_CATALOG` or `DUCKLAKE_SINK_ENDPOINT`, never both.
 | Several proxy replicas | `CATALOG=postgres:dbname=lake host=db user=lake password=...`, `DATA_PATH=<shared folder>` | Any libpq connection string after `postgres:`. |
 | A DuckDB server hosting the catalog | `CATALOG=quack:host:9494`, `QUACK_TOKEN=<token printed by quack_serve>`, `DATA_PATH=<shared folder>` | The server runs `CALL quack_serve('quack:host:9494', token = '...')` with the ducklake extension loaded. |
 | A DuckDB file catalog | `CATALOG=lake/metadata.ducklake`, `DATA_PATH=lake/data/` | One process only: the proxy locks the file while it runs, so readers cannot attach meanwhile. |
-| A QoD gateway | `ENDPOINT=quack:host:9494`, plus the [QoD settings](#qod-settings) | Over QoD's native Quack front door. Flight SQL (`grpc+tls://host:31338`) works too. |
+| A QoD gateway | `ENDPOINT=grpc+tls://host:31338`, plus the [QoD settings](#qod-settings) | Through QoD's Arrow Flight SQL edge. QoD's native Quack front door (`quack:host:9494`) works too. |
 | A DuckDB server with the lake attached | `ENDPOINT=quack:host:port`, `QUACK_TOKEN=<token>` | The sink sends its SQL to that server over Quack. |
 | Any Arrow Flight SQL server | `ENDPOINT=grpc+tls://host:port`, `USERNAME`, `PASSWORD` | The server must run DuckDB with the lake attached. |
 
-In the table, `CATALOG` stands for `DUCKLAKE_SINK_CATALOG`, and so on for the other names. With a catalog, the sink attaches DuckLake inside the proxy process and writes the Parquet files itself, and DuckDB downloads the extensions it needs (`ducklake`, `sqlite`, `postgres`, `quack`) on first use. The SQL the sink emits is plain `CREATE TABLE IF NOT EXISTS`, `INSERT ... VALUES`, and `DELETE`, plus DuckLake's `ALTER TABLE ... SET PARTITIONED BY` at bootstrap, so any server in the table works as long as it runs DuckDB with the DuckLake extension.
+In the table, `CATALOG` stands for `DUCKLAKE_SINK_CATALOG`, and so on for the other names. Quote a catalog value that contains spaces, such as a Postgres connection string, so the shell keeps it whole. DuckLake records `DATA_PATH` in the catalog on the first write and refuses a different value afterwards, so keep it stable, and make it absolute when proxies start from different folders. With a catalog, the sink attaches DuckLake inside the proxy process and writes the Parquet files itself, and DuckDB downloads the extensions it needs (`ducklake`, `sqlite`, `postgres`, `quack`) on first use. The SQL the sink emits is plain `CREATE TABLE IF NOT EXISTS`, `INSERT ... VALUES`, and `DELETE`, plus DuckLake's `ALTER TABLE ... SET PARTITIONED BY` at bootstrap, so any server in the table works as long as it runs DuckDB with the DuckLake extension.
 
 ### All settings
 
@@ -159,7 +165,7 @@ These settings only apply when the endpoint is a QoD (quack-on-demand) gateway. 
 
 | Setting | Env var | Default | Value for `uvx qod start --demo` |
 |---|---|---|---|
-| endpoint | DUCKLAKE_SINK_ENDPOINT | unset | `quack:localhost:9494` (Quack), or `grpc+tls://localhost:31338` (Flight SQL) |
+| endpoint | DUCKLAKE_SINK_ENDPOINT | unset | `grpc+tls://localhost:31338` (Flight SQL), or `quack:localhost:9494` (Quack) |
 | username / password | DUCKLAKE_SINK_USERNAME / _PASSWORD | unset | `acme-admin` / `demo-acme-admin` |
 | tenant / pool | DUCKLAKE_SINK_TENANT / _POOL | unset; route every statement to that tenant and pool | `acme` / `bi` |
 | schema_name | DUCKLAKE_SINK_SCHEMA_NAME | `main` | `tpch1` |
@@ -167,7 +173,7 @@ These settings only apply when the endpoint is a QoD (quack-on-demand) gateway. 
 | tenant_db | DUCKLAKE_SINK_TENANT_DB | unset; needed only for the maintenance trigger | `acme_tpch` |
 | maintenance_url / api key | DUCKLAKE_SINK_MAINTENANCE_URL / _MAINTENANCE_API_KEY | unset; QoD manager REST endpoint for the maintenance trigger | `http://localhost:20900` / unset |
 
-Over Quack, the sink builds QoD's token from the username, password, tenant and pool (`tenant=acme&pool=bi&user=...&password=...`, URL-encoded). The QoD block at the end of [`.env.example`](.env.example) sets all of these values at once. QoD's Quack listener speaks plain HTTP unless the gateway sets `QOD_QUACK_TLS_ENABLED=true`, and DuckDB uses TLS for any host other than `localhost`, so enable TLS on a remote gateway.
+[`examples/qod.env`](examples/qod.env) sets all of these values for the demo gateway, over Flight SQL. To use Quack instead, set the endpoint to `quack:localhost:9494`: the sink builds QoD's token from the username, password, tenant and pool (`tenant=acme&pool=bi&user=...&password=...`, URL-encoded). QoD's Quack listener speaks plain HTTP unless the gateway sets `QOD_QUACK_TLS_ENABLED=true`, and DuckDB uses TLS for any host other than `localhost`, so enable TLS on a remote gateway.
 
 ### Startup and failure behavior
 
