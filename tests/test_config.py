@@ -73,10 +73,7 @@ def test_minimal_env_resolves_with_defaults():
     assert result.spool_max_bytes == 512 * 1024 * 1024
     assert result.drain_timeout == 10
     assert result.flush_max_attempts == 5
-    assert result.retention_days == 30
     assert result.schema_name == "main"
-    assert result.tenant_db is None
-    assert result.maintenance_url is None
     assert result.spool_dir.endswith("litellm_ducklake_spool")
 
 
@@ -110,13 +107,14 @@ def test_bad_integer_returns_error():
 
 
 def test_secrets_hidden_from_repr():
-    env = dict(REQUIRED)
-    env["DUCKLAKE_SINK_MAINTENANCE_API_KEY"] = "topsecretkey"
-    result = resolve_ducklake_config(env)
+    result = resolve_ducklake_config(dict(REQUIRED))
     assert isinstance(result, DuckLakeSinkConfig)
-    rendered = repr(result)
-    assert "secret" not in rendered
-    assert "topsecretkey" not in rendered
+    assert "secret" not in repr(result)
+
+
+def test_config_has_no_maintenance_settings():
+    fields = DuckLakeSinkConfig.__dataclass_fields__
+    assert not {"tenant_db", "maintenance_url", "maintenance_api_key"} & set(fields)
 
 
 def test_bad_boolean_returns_error():
@@ -301,3 +299,11 @@ def test_bad_s3_url_style_returns_error():
     result = resolve_ducklake_config({**S3_DIRECT, "DUCKLAKE_SINK_S3_URL_STYLE": "sideways"})
     assert isinstance(result, DuckLakeConfigError)
     assert "DUCKLAKE_SINK_S3_URL_STYLE" in result.message
+
+
+def test_sink_has_no_retention_job_or_setting():
+    # Expiring old rows belongs to whoever hosts the lake (QoD on its side).
+    import importlib.util
+
+    assert importlib.util.find_spec("litellm_ducklake_sink.retention") is None
+    assert "retention_days" not in DuckLakeSinkConfig.__dataclass_fields__

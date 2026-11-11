@@ -43,7 +43,6 @@ class DuckLakeSinkConfig:
     password: str = field(default="", repr=False)
     tenant: str | None = None
     pool: str | None = None
-    tenant_db: str | None = None
     schema_name: str = "main"
     tls_skip_verify: bool = False
     enabled: bool = True
@@ -56,9 +55,6 @@ class DuckLakeSinkConfig:
     spool_max_bytes: int = 512 * 1024 * 1024
     drain_timeout: float = 10.0
     flush_max_attempts: int = 5
-    retention_days: int = 30
-    maintenance_url: str | None = None
-    maintenance_api_key: str | None = field(default=None, repr=False)
 
     @property
     def is_direct(self) -> bool:
@@ -201,7 +197,6 @@ def _with_tuning(env: Mapping[str, str], connection: DuckLakeSinkConfig) -> Duck
         connection,
         tenant=_text(env, "TENANT"),
         pool=_text(env, "POOL"),
-        tenant_db=_text(env, "TENANT_DB"),
         schema_name=_text(env, "SCHEMA_NAME") or "main",
         tls_skip_verify=_flag(env, "TLS_SKIP_VERIFY", False),
         enabled=True,
@@ -214,9 +209,6 @@ def _with_tuning(env: Mapping[str, str], connection: DuckLakeSinkConfig) -> Duck
         spool_max_bytes=_number(env, "SPOOL_MAX_BYTES", 512 * 1024 * 1024),
         drain_timeout=float(_number(env, "DRAIN_TIMEOUT", 10)),
         flush_max_attempts=_at_least_one("FLUSH_MAX_ATTEMPTS", _number(env, "FLUSH_MAX_ATTEMPTS", 5)),
-        retention_days=_number(env, "RETENTION_DAYS", 30),
-        maintenance_url=_text(env, "MAINTENANCE_URL"),
-        maintenance_api_key=_text(env, "MAINTENANCE_API_KEY"),
     )
 
 

@@ -22,7 +22,6 @@ dependencies = [
     "adbc-driver-flightsql>=1.4.0,<2.0",
     "adbc-driver-manager>=1.4.0,<2.0",
     "pyarrow>=18.0.0",
-    "httpx>=0.27.0",
 ]
 
 [project.optional-dependencies]

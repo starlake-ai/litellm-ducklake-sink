@@ -160,7 +160,6 @@ In the table, `CATALOG` stands for `DUCKLAKE_SINK_CATALOG`, and so on for the ot
 | spool_max_bytes | DUCKLAKE_SINK_SPOOL_MAX_BYTES | 512 MiB |
 | drain_timeout | DUCKLAKE_SINK_DRAIN_TIMEOUT | 10 seconds |
 | flush_max_attempts | DUCKLAKE_SINK_FLUSH_MAX_ATTEMPTS | 5 (backoff 1s, 2s, 4s... capped 30s) |
-| retention_days | DUCKLAKE_SINK_RETENTION_DAYS | 30 |
 
 ### QoD settings
 
@@ -173,8 +172,6 @@ These settings only apply when the endpoint is a QoD (quack-on-demand) gateway. 
 | tenant / pool | DUCKLAKE_SINK_TENANT / _POOL | unset; route every statement to that tenant and pool | `acme` / `bi` |
 | schema_name | DUCKLAKE_SINK_SCHEMA_NAME | `main` | `tpch1` |
 | tls_skip_verify | DUCKLAKE_SINK_TLS_SKIP_VERIFY | false | `true` with Flight SQL (self-signed certificate); not used over Quack |
-| tenant_db | DUCKLAKE_SINK_TENANT_DB | unset; needed only for the maintenance trigger | `acme_tpch` |
-| maintenance_url / api key | DUCKLAKE_SINK_MAINTENANCE_URL / _MAINTENANCE_API_KEY | unset; QoD manager REST endpoint for the maintenance trigger | `http://localhost:20900` / unset |
 
 [`examples/qod.env`](examples/qod.env) sets all of these values for the demo gateway, over Flight SQL. To use Quack instead, set the endpoint to `quack:localhost:9494`: the sink builds QoD's token from the username, password, tenant and pool (`tenant=acme&pool=bi&user=...&password=...`, URL-encoded). QoD's Quack listener speaks plain HTTP unless the gateway sets `QOD_QUACK_TLS_ENABLED=true`, and DuckDB uses TLS for any host other than `localhost`, so enable TLS on a remote gateway.
 
@@ -186,7 +183,7 @@ An unreachable or wrong endpoint or catalog does not block startup. Connections 
 
 ### Table creation
 
-No manual DDL is needed. On the first flush of each process the sink runs `CREATE TABLE IF NOT EXISTS` for `llm_requests` and `llm_payloads` in `schema_name`, then `ALTER TABLE ... SET PARTITIONED BY (request_day)` on each, before the first insert. The schema itself must already exist (`main` always does). The connecting user therefore needs DDL and write privileges on that schema; under QoD with ACL enabled, grant `CREATE`/`ALTER` alongside `INSERT` (and `DELETE` for the retention job).
+No manual DDL is needed. On the first flush of each process the sink runs `CREATE TABLE IF NOT EXISTS` for `llm_requests` and `llm_payloads` in `schema_name`, then `ALTER TABLE ... SET PARTITIONED BY (request_day)` on each, before the first insert. The schema itself must already exist (`main` always does). The connecting user therefore needs DDL and write privileges on that schema; under QoD with ACL enabled, grant `CREATE`/`ALTER` alongside `INSERT`.
 
 ### Delivery semantics
 
@@ -200,12 +197,14 @@ Replay of spooled batches runs on the periodic flush cycle, which starts on the 
 
 Multi-worker deployments share one spool safely: workers claim a batch before replaying it, so the same batch is never replayed twice, and a claim left behind by a worker that crashes mid-replay is automatically recovered by another worker after 15 minutes.
 
-## Retention
+## Expiring old rows
 
-```bash
-python -m litellm_ducklake_sink.retention
+The sink only appends; it never deletes. Expiring old telemetry belongs to whoever hosts the lake. On QoD, configure it on the QoD side. With your own SQLite or Postgres catalog, schedule the deletes yourself (cron, a Kubernetes CronJob), then let DuckLake expire the old snapshots and remove the files they no longer reference. Rows are partitioned by `request_day`, so deleting whole days is cheap:
+
+```sql
+ATTACH 'ducklake:sqlite:lake/catalog.sqlite' AS lake;
+DELETE FROM lake.main.llm_requests WHERE request_day < current_date - INTERVAL 30 DAY;
+DELETE FROM lake.main.llm_payloads WHERE request_day < current_date - INTERVAL 30 DAY;
+CALL ducklake_expire_snapshots('lake', older_than => now() - INTERVAL 7 DAY);
+CALL ducklake_cleanup_old_files('lake', cleanup_all => true);
 ```
-
-Run it out-of-band (cron or a Kubernetes CronJob). It deletes rows older than `DUCKLAKE_SINK_RETENTION_DAYS`. When `DUCKLAKE_SINK_ENABLED=false` it exits 0 without connecting, so a shared env file disables the proxy sink and the retention job together.
-
-Deletes in DuckLake are logical: old snapshots still reference the deleted rows' Parquet files until snapshot expiry and file cleanup run. On QoD, set `DUCKLAKE_SINK_MAINTENANCE_URL`, `DUCKLAKE_SINK_TENANT`, and `DUCKLAKE_SINK_TENANT_DB` and the retention job triggers QoD's managed maintenance chain after the deletes so the files are physically removed. On any other DuckLake setup, run `ducklake_expire_snapshots` and `ducklake_cleanup_old_files` yourself on whatever schedule your deployment uses.

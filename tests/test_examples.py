@@ -32,7 +32,13 @@ def test_qod_example_targets_the_demo_gateway_over_flight_sql():
     assert config.tls_skip_verify is True
     assert config.is_quack_endpoint is False
     assert (config.tenant, config.pool, config.schema_name) == ("acme", "bi", "tpch1")
-    assert config.maintenance_url == "http://localhost:20900"
+    assert "MAINTENANCE" not in (EXAMPLES / "qod.env").read_text()
+    assert "TENANT_DB" not in (EXAMPLES / "qod.env").read_text()
+
+
+@pytest.mark.parametrize("name", ["ducklake-sqlite.env", "ducklake-postgres.env", "qod.env"])
+def test_no_example_mentions_retention(name: str):
+    assert "RETENTION" not in (EXAMPLES / name).read_text().upper()
 
 
 @pytest.mark.parametrize("name", ["ducklake-sqlite.env", "ducklake-postgres.env", "qod.env"])
@@ -48,7 +54,6 @@ def test_every_example_spells_out_the_package_defaults(name: str):
         "spool_max_bytes",
         "drain_timeout",
         "flush_max_attempts",
-        "retention_days",
     ):
         assert getattr(config, field) == getattr(defaults, field), field
 

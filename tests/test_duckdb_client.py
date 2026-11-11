@@ -1,4 +1,3 @@
-from datetime import date
 from pathlib import Path
 
 import duckdb
@@ -8,7 +7,6 @@ from litellm_ducklake_sink.config import DuckLakeSinkConfig, resolve_ducklake_co
 from litellm_ducklake_sink.duckdb_client import DuckDBExecutor, build_executor
 from litellm_ducklake_sink.ducklake_logger import DuckLakeLogger
 from litellm_ducklake_sink.flight_client import AdbcFlightSqlExecutor
-from litellm_ducklake_sink.retention import run_retention
 from tests.test_ducklake_logger import _event_kwargs
 
 
@@ -99,21 +97,6 @@ async def test_logger_writes_requests_and_payloads_into_ducklake(tmp_path: Path)
     ]
     assert _read(tmp_path, "SELECT count(*) FROM lake.main.llm_payloads") == [(2,)]
     logger._executor.close()
-
-
-def test_retention_deletes_old_rows_from_ducklake(tmp_path: Path):
-    config = _direct_config(tmp_path, DUCKLAKE_SINK_RETENTION_DAYS="30")
-    executor = DuckDBExecutor(config)
-    try:
-        executor.execute_script("CREATE TABLE IF NOT EXISTS main.llm_requests (request_day DATE)")
-        executor.execute_script("CREATE TABLE IF NOT EXISTS main.llm_payloads (request_day DATE)")
-        executor.execute("INSERT INTO main.llm_requests VALUES (DATE '2026-01-01'), (DATE '2026-11-10')")
-        outcome = run_retention(config, executor, date(2026, 11, 11), lambda _config: False)
-    finally:
-        executor.close()
-    assert outcome.error is None
-    assert outcome.deleted_requests == 1
-    assert _read(tmp_path, "SELECT count(*) FROM lake.main.llm_requests") == [(1,)]
 
 
 class RecordingConnection:
