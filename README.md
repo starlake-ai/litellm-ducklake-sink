@@ -7,7 +7,7 @@
 
 A LiteLLM proxy logging callback that records every request in a DuckLake lakehouse: model, tokens, spend, latency, status, team and key, plus prompts and responses if you want them. Rows land in `llm_requests` and `llm_payloads`, partitioned by day, and you query them with plain SQL from any DuckDB.
 
-LiteLLM can write to DuckLake directly. The sink embeds DuckDB, so a SQLite file and a folder are all you need to start, with no server to run. Production deployments point the same sink at a Postgres catalog, at a DuckDB server over the Quack protocol, or at an Arrow Flight SQL server such as QoD (quack-on-demand).
+LiteLLM can write to DuckLake directly. The sink embeds DuckDB, so a folder is all you need to start, with no server to run. Production deployments point the same sink at a Postgres catalog, at a DuckDB server over the Quack protocol, or at an Arrow Flight SQL server such as QoD (quack-on-demand).
 
 ## Quickstart: LiteLLM to DuckLake in 5 minutes
 
